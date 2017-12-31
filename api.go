@@ -8,28 +8,42 @@ import (
 
     "net/http"
     "github.com/gorilla/mux"
+
+    "database/sql"
+    _ "github.com/mattn/go-sqlite3"
 )
 
-type MockDB struct {
-    UserID      string
-    DataName    string
-    Data        string
-}
+var db *sql.DB
 
-var db []MockDB
+func writeErrorCode(w http.ResponseWriter, code int) {
+    w.WriteHeader(code)
+
+    switch code {
+    case 404:
+        io.WriteString(w, "404 page not found")
+    case 500:
+        io.WriteString(w, "500 internal server error")
+    }
+}
 
 func GetDataEndpoint(w http.ResponseWriter, req *http.Request) {
     params := mux.Vars(req)
 
-    for _, item := range db {
-        if item.UserID == params["UserID"] && item.DataName == params["DataName"] {
-            io.WriteString(w,item.Data)
-            return
-        }
+    stmt, err := db.Prepare("SELECT data FROM script_data WHERE userID=? AND dataName=?")
+    if err != nil {
+        log.Println(err)
+        writeErrorCode(w, 500)
+        return
     }
+    defer stmt.Close()
 
-    w.WriteHeader(404)
-    io.WriteString(w, "404 page not found")
+    var data string
+    err = stmt.QueryRow(params["UserID"], params["DataName"]).Scan(&data)
+    if err != nil {
+        writeErrorCode(w, 404)
+        return
+    }
+    io.WriteString(w, data)
 }
 
 func SetDataEndpoint(w http.ResponseWriter, req *http.Request) {
@@ -39,20 +53,32 @@ func SetDataEndpoint(w http.ResponseWriter, req *http.Request) {
     buf.ReadFrom(req.Body)
     data := buf.String()
 
-    for _, item := range db {
-        if item.UserID == params["UserID"] && item.DataName == params["DataName"] {
-            item.Data = data
-            return
-        }
+    stmt, err := db.Prepare("INSERT OR REPLACE INTO script_data (userID, dataName, data) VALUES (?,?,?)")
+    if err != nil {
+        log.Println(err)
+        writeErrorCode(w, 500)
     }
-    db = append(db, MockDB{UserID: params["UserID"], DataName: params["DataName"], Data: data})
+    defer stmt.Close()
+
+    _, err = stmt.Exec(params["UserID"], params["DataName"], data)
+    if err != nil {
+        log.Println(err)
+        writeErrorCode(w, 500)
+    }
+}
+
+func init() {
+    var err error
+    db, err = sql.Open("sqlite3", "./api.db")
+    if err != nil {
+        log.Fatal(err)
+    }
 }
 
 func main() {
-    router := mux.NewRouter()
+    defer db.Close()
 
-    db = append(db, MockDB{UserID: "n0m1s", DataName: "data1", Data: `{foo:"data1"}`})
-    db = append(db, MockDB{UserID: "n0m1s", DataName: "data2", Data: `{bar:"data2"}`})
+    router := mux.NewRouter()
 
     scriptData := router.PathPrefix("/script-data/{UserID}/{DataName}").Subrouter()
     scriptData.HandleFunc("/", GetDataEndpoint).Methods("GET")
