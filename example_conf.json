@@ -1,0 +1,10 @@
+{
+    "database": {
+        "driver": "sqlite3",
+        "path": "./foo.db"
+    },
+
+    "webserver": {
+        "address": ":12345"
+    }
+}

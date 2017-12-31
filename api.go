@@ -5,14 +5,32 @@ import (
     "time"
     "io"
     "bytes"
+    "os"
 
     "net/http"
     "github.com/gorilla/mux"
 
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
+
+    "encoding/json"
 )
 
+type DatabaseSettings struct {
+    Driver  string
+    Path    string
+}
+
+type WebserverSettings struct {
+    Address string
+}
+
+type Settings struct {
+    Database    *DatabaseSettings
+    Webserver   *WebserverSettings
+}
+
+var settings Settings
 var db *sql.DB
 
 func writeErrorCode(w http.ResponseWriter, code int) {
@@ -67,12 +85,33 @@ func SetDataEndpoint(w http.ResponseWriter, req *http.Request) {
     }
 }
 
-func init() {
-    var err error
-    db, err = sql.Open("sqlite3", "./api.db")
+func LoadConf(path string) Settings {
+    file, err := os.Open(path)
     if err != nil {
         log.Fatal(err)
     }
+    defer file.Close()
+
+    decoder := json.NewDecoder(file)
+    conf := Settings{}
+    err = decoder.Decode(&conf)
+    if err != nil {
+        log.Fatal(err)
+    }
+    return conf
+}
+
+func OpenDatabase(conf *DatabaseSettings) *sql.DB {
+    db, err := sql.Open(conf.Driver, conf.Path)
+    if err != nil {
+        log.Fatal(err)
+    }
+    return db
+}
+
+func init() {
+    settings = LoadConf("conf.json")
+    db = OpenDatabase(settings.Database)
 }
 
 func main() {
@@ -86,7 +125,7 @@ func main() {
 
     srv := &http.Server{
         Handler:        router,
-        Addr:           ":12345",
+        Addr:           settings.Webserver.Address,
         WriteTimeout:   15 * time.Second,
         ReadTimeout:    15 * time.Second,
     }
