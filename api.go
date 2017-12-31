@@ -85,6 +85,47 @@ func SetDataEndpoint(w http.ResponseWriter, req *http.Request) {
     }
 }
 
+func ReadTo(in io.Reader, out io.Writer) error {
+    buf := make([]byte, 32*1024)
+    for {
+        n, err := in.Read(buf)
+        if n > 0 {
+            out.Write(buf[:n])
+        }
+
+        if err == io.EOF {
+            return nil
+        }
+
+        if err != nil {
+            return err
+        }
+    }
+}
+
+func GetLicense(w http.ResponseWriter, req *http.Request) {
+    err_str := "License A-GPLv3: https://www.gnu.org/licenses/agpl-3.0.html"
+
+    file, err := os.Open("AGPLv3.html")
+    if err != nil {
+        log.Println(err)
+        io.WriteString(w, err_str)
+        return
+    }
+    defer file.Close()
+
+    err = ReadTo(file, w)
+    if err != nil {
+        log.Println(err)
+        io.WriteString(w, err_str)
+    }
+}
+
+func GetSource(w http.ResponseWriter, req *http.Request) {
+    w.Header().Set("Location", "https://github.com/hfrlib/api")
+    w.WriteHeader(303)
+}
+
 func LoadConf(path string) Settings {
     file, err := os.Open(path)
     if err != nil {
@@ -118,6 +159,8 @@ func main() {
     defer db.Close()
 
     router := mux.NewRouter()
+    router.HandleFunc("/license", GetLicense)
+    router.HandleFunc("/source", GetSource)
 
     scriptData := router.PathPrefix("/script-data/{UserID}/{DataName}").Subrouter()
     scriptData.HandleFunc("/", GetDataEndpoint).Methods("GET")
